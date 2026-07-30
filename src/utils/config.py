@@ -42,7 +42,7 @@ def initialize_directories():
     Safely build the required workspace directories on the local machine 
     if they do not already exist when a simulation is executed.
     """
-    directories = [DATA_DIR, SYSTEM_DIR, WEATHER_DIR, FLOW_DIR, DEMAND_DIR, RESULTS_DIR]
+    directories = [DATA_DIR, SYSTEM_DIR, WEATHER_DIR, RAW_WEATHER_DIR, WEATHER_MONTHLY_DIR, INDICATOR_DIR, FLOW_DIR, DEMAND_DIR, RESULTS_DIR]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
 

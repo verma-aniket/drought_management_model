@@ -82,7 +82,7 @@ def run_pipeline_test():
 
     # --- 3. Execute Simulation ---
     start = time.perf_counter()
-    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="minimal")
+    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="objective")
     stop = time.perf_counter()
     duration = stop - start
     # # --- 4. Quick Verification Sanity Checks ---
@@ -95,8 +95,8 @@ def run_pipeline_test():
     # print("🎉 Test execution complete!")
 
     # # save results to csv
-    output.to_csv(config.RESULTS_DIR / "test_results_minimal.csv", index=True, sep=',')
-    # print(output)
+    # output.to_csv(config.RESULTS_DIR / "test_results_minimal.csv", index=True, sep=',')
+    print(output)
 
 if __name__ == "__main__":
     run_pipeline_test()
