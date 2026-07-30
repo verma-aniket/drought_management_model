@@ -1,0 +1,16 @@
+# Ignore Python internal cache files
+__pycache__/
+*.pyc
+
+# Ignore all local data and results folders
+data/
+results/
+plots/
+
+# Ignore common spreadsheet and data types
+*.csv
+*.xlsx
+*.h5
+*.pickle
+*.npy
+*.zip
