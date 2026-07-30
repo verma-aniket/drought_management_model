@@ -38,7 +38,7 @@ def run_pipeline_test():
     profiles_dict    = loader.load_monthly_profiles(loader.test_profiles_file)
     hydro_types_dict = loader.load_hydro_types(loader.test_hydro_types_file)
     env_flows_dict   = loader.load_env_flows(loader.test_env_flows_file)
-    spi_params = loader.load_indicator_params(loader.test_spi_file, cols=['a', 'scale', 'q'])
+    spi_params       = loader.load_indicator_params(loader.test_spi_file, cols=['a', 'scale', 'q'])
 
     # --- 2. Build exogenous monthly indicator vectors (SPI or SRI) ---
     k = 12
@@ -56,7 +56,7 @@ def run_pipeline_test():
     # policy_thresholds = [1.5567, -0.6228, -1.8976, -2.5357, -3.0000]
     # policy_thresholds = [1.9073, 1.0210, 0.1631, -0.6338, -2.6244]
     policy_thresholds = [-1.0, -1.5, -2.0, -2.5, -3.0]
-    curtail_action = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25]
+    curtail_action = [0.0, 0.10, 0.20, 0.30, 0.40, 0.50]
     hardening_factor = 0.25
 
 
@@ -82,7 +82,7 @@ def run_pipeline_test():
 
     # --- 3. Execute Simulation ---
     start = time.perf_counter()
-    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="objective")
+    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="demand")
     stop = time.perf_counter()
     duration = stop - start
     # # --- 4. Quick Verification Sanity Checks ---
@@ -95,8 +95,8 @@ def run_pipeline_test():
     # print("🎉 Test execution complete!")
 
     # # save results to csv
-    # output.to_csv(config.RESULTS_DIR / "test_results_minimal.csv", index=True, sep=',')
-    print(output)
+    output.to_csv(config.RESULTS_DIR / "test_results_demand.csv", index=True, sep=',')
+    # print(output)
 
 if __name__ == "__main__":
     run_pipeline_test()

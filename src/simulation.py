@@ -265,73 +265,6 @@ class WaterBalanceModel:
         if self.current_action > 0:
             self.event_max_curtail = max(self.event_max_curtail, self.current_curtailment)
 
-    # def apply_endogenous_demand_policy(self, time_idx):
-    #     """
-    #     Dynamically modifies self.demand_active across the entire simulation timeline
-    #     based on idicator values and demand hardening rules.
-        
-    #     Inputs:
-    #         indicator: indicator value of current time step
-    #         K_thresholds: List of 5 indicator thresholds [K1, K2, K3, K4, K5] where K1 > K2 > K3 > K4 > K5
-    #         curtailment_rates: List of 5 percentages [c1, c2, c3, c4, c5] for States 1-5 percent reductions
-    #         f_hardening: Hardening fraction between 0.0 and 1.0
-    #     """
-    #     K1, K2, K3, K4, K5 = self.indicator_thresholds
-    #     c1, c2, c3, c4, c5 = self.curtailment_rates
-
-    #     # determine curtailment action based on indicator value
-    #     if self.indicator[time_idx] >= K1:
-    #         action = 0  # do nothing action
-    #         c_current = 0.0
-    #     elif self.indicator[time_idx] >= K2:
-    #         action = 1
-    #         c_current = c1
-    #     elif self.indicator[time_idx] >= K3:
-    #         action = 2
-    #         c_current = c2
-    #     elif self.indicator[time_idx] >= K4:
-    #         action = 3
-    #         c_current = c3
-    #     elif self.indicator[time_idx] >= K5:
-    #         action = 4
-    #         c_current = c4
-    #     else:
-    #         action = 5
-    #         c_current = c5
-
-    #     # 3. Handle Transitions and Demand Hardening
-    #     if action == 0:
-    #         # Case 1: transitioning from in curtailment action to no curtailment action
-    #         if self.event_max_curtail > 0.0:
-    #             # Curtailment order lifted! Ratchet down the effective baseline permanently
-    #             hardened_loss_fraction = self.event_max_curtail * self.f_hardening
-    #             self.eff_base_factor *= (1.0 - hardened_loss_fraction)
-                
-    #             # Reset tracker for future curtailment orders
-    #             self.event_max_curtail = 0.0
-
-    #             # New post-curtailment baseline (demand hardening)
-    #             self.demand_eff_base[time_idx:] = self.eff_base_factor * self.demand_eff_base[time_idx:]
-                
-    #             # Active demand returns to the new effective baseline
-    #             self.demand_active[time_idx:] = self.demand_eff_base[time_idx:]
-
-    #         # # Case 2: if self.event_max_curtail = 0.0 (do nothing)
-    #         # else:
-    #         #     # Active demand remains at effective baseline
-    #         #     self.demand_active[time_idx] = self.demand_eff_base[time_idx]
-        
-    #     else:
-    #         # Case 3: Still in active curtailment
-            
-    #         # Active Drought State (States 1 - 5)
-    #         # Keep track of the deepest curtailment during this event
-    #         self.event_max_curtail = max(self.event_max_curtail, c_current)
-    #         self.action[time_idx] = c_current
-                
-    #         # Apply current active curtailment to effective baseline demand
-    #         self.demand_active[time_idx] = self.demand_eff_base[time_idx] * (1.0 - c_current)
-
     def get_days_in_month(self, year: int, month: int) -> int:
         """
         Natively determines the number of days in a specific month,
@@ -934,9 +867,9 @@ class WaterBalanceModel:
         Prepares data frameworks and orchestrates the daily multi-year water systems balance simulation loop.
 
         'results' input controls level of detail of results the simulation returns 
-            "full"      results the complete set of results (flow routing, reservoir storage, etc.).
-            "minimal"   results are key values (i.e., total reservoir volume, total supplies, groundwater baseline demand, effective baseline, and active demand)
-            "objective" returns performance objective value (float)
+            "operations"    returns the operations-relevant results (supply sources, flow routing, reservoir storage, etc.).
+            "demand"        results are demand-relevant (i.e., effective baseline and active demand, curtailment actions, etc.)
+            "objective"     returns performance objective value (float)
         By default, it is set to "objective"
 
         Output:
@@ -977,7 +910,7 @@ class WaterBalanceModel:
         # update daily turbidity flag vectors
         self.get_turbidity()
         
-        if results == 'full':
+        if results == 'operations':
             # Pre-allocate output arrays to store results
             #   Using pre-allocated numpy arrays completely eliminates inner-loop memory bottlenecks
             outputs = {
@@ -1006,7 +939,7 @@ class WaterBalanceModel:
                 "unmet_slv_demand": np.zeros(num_days),
                 "mass_balance_check": np.zeros(num_days)
             }
-        elif results == "minimal":
+        elif results == "demand":
             outputs = {
                 "NC_supply_MGD": np.zeros(num_days),
                 "GW_supply_MGD": np.zeros(num_days),
@@ -1140,7 +1073,7 @@ class WaterBalanceModel:
             change_in_volume = (self.V_newell + self.V_felton + self.V_precip) - v_total_start
             delta_V = (i_newell + i_precip + s_felton_div) - (total_reservoir_release + o_evap + (o_env - remaining_env) + (self.d_slv - remaining_slv) + ll_spill)
 
-            if results == "full":
+            if results == "operations":
                 # Save results to pre-allocated output arrays
                 outputs["s_NC"][t] = s_NC
                 outputs["s_b12"][t] = s_b12
@@ -1166,7 +1099,7 @@ class WaterBalanceModel:
                 outputs["unmet_env_flow"][t] = remaining_env
                 outputs["unmet_slv_demand"][t] = remaining_slv
                 outputs["mass_balance_check"][t] = change_in_volume - delta_V
-            elif results == "minimal":
+            elif results == "demand":
                 outputs["NC_supply_MGD"][t] = s_NC
                 outputs["GW_supply_MGD"][t] = s_b12 + s_oakwell + (s_tait - s_tait_div)
                 outputs["tait_div_MGD"][t] = s_tait_div
@@ -1190,7 +1123,7 @@ class WaterBalanceModel:
         # =========================================================================
         # print("Simulation complete. Consolidating daily time-series matrices...")
         
-        if (results == "full") or (results == "minimal"):
+        if results != "objective":
             # Convert the tracking dictionary of numpy arrays into a clean Pandas DataFrame
             # reuse the original flow time-series index to preserve date context (year, month, day)
             simulation_results_df = pd.DataFrame(outputs, index=self.date.index)
