@@ -15,9 +15,9 @@ import time
 def run_pipeline_test():
 
     # define objective function weights
-    deficit_weight = 1
-    curt_cost_weight = 0
-    HR2W_penalty = 0
+    deficit_weight = 0.25
+    curt_cost_weight = 0.25
+    HR2W_penalty = 0.5
     
     # print("🧪 Initializing Water Balance Model Quick Test...")
     loader = DataLoader() # instantiate loader pipeline
@@ -56,6 +56,7 @@ def run_pipeline_test():
     # policy_thresholds = [1.5567, -0.6228, -1.8976, -2.5357, -3.0000]
     # policy_thresholds = [1.9073, 1.0210, 0.1631, -0.6338, -2.6244]
     policy_thresholds = [-1.0, -1.5, -2.0, -2.5, -3.0]
+    policy_thresholds = [2.9417, 1.2214, 1.1320, -1.0232, -1.3397]
     curtail_action = [0.0, 0.10, 0.20, 0.30, 0.40, 0.50]
     hardening_factor = 0.25
 
@@ -82,7 +83,7 @@ def run_pipeline_test():
 
     # --- 3. Execute Simulation ---
     start = time.perf_counter()
-    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="demand")
+    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="objective")
     stop = time.perf_counter()
     duration = stop - start
     # # --- 4. Quick Verification Sanity Checks ---
@@ -95,8 +96,12 @@ def run_pipeline_test():
     # print("🎉 Test execution complete!")
 
     # # save results to csv
-    output.to_csv(config.RESULTS_DIR / "test_results_demand.csv", index=True, sep=',')
-    # print(output)
+    # output.to_csv(config.RESULTS_DIR / "test_results_demand.csv", index=True, sep=',')
+    print(output) # 14934.350519
+
+    output = model.run_simulation(indicator_thresholds=policy_thresholds, results="objective")
+
+    print(output)
 
 if __name__ == "__main__":
     run_pipeline_test()

@@ -106,9 +106,10 @@ class WaterBalanceModel:
         self.LL_max = float(params_dict.get('LL_max', 2859.737))                # LL reservoir maximum strorage volume, MG
         self.LL_reserve = float(params_dict.get('LL_reserve', 1070.0))          # LL reservoir drought reserve volume, MG
         self.LL_threshold = float(params_dict.get('LL_threshold', 2092.642))    # LL reservoir January 1st threshold volume, MG
+        self.LL_initial = float(params_dict.get('LL_initial', 2670.0))          # LL reservoir storage on first day of simulation in dates.csv
 
         # Initialize permanent state variables (carried over day-to-day)
-        self.V_newell = float(params_dict.get('LL_initial', 2670.0))            # Newell Creek water in LL reservoir, MG (initilized to start of simulation storage)
+        self.V_newell = self.LL_initial                                         # Newell Creek water in LL reservoir, MG (initilized to start of simulation storage)
         self.V_felton = 0.0                                                     # Felton Diversion water in LL reservoir, MG
         self.V_precip = 0.0                                                     # direct precipitation water in LL reservoir, MG
 
@@ -121,7 +122,7 @@ class WaterBalanceModel:
         self.is_felton_pump_on = True                                           # checks if the Felton pump can be operated this year
         self.first_flush = True                                                 # checks if "first flush" has happened yet, resets every September, assume it has happened for initialization
         self.first_flush_counter = 0                                            # counter use to track first flush status
-        self.first_flush_flow = float(params_dict.get('ff_flow', 100.0))        # minimum first flush flow threshold
+        self.first_flush_flow = float(params_dict.get('first_flush', 100.0))    # minimum first flush flow threshold, in CFS
 
         # Turbidity Flag parameters
         self.turb_flag = float(params_dict.get('turb_flag', 0.67))*self.in_to_mm# rainfall above which turbidity flag is raised, inches converted to mm
@@ -147,29 +148,6 @@ class WaterBalanceModel:
             base_val, pop = self.demand.loc[(self.demand['year'] == yr) & (self.demand['month'] == mn), ['demand_MG', 'population']].values[0]
             self.demand_base[idx] = base_val
             self.population[idx] = pop
-
-        # # create daily population array
-        # self.population = np.zeros(len(self.date))
-
-        # # store exogenous indicator (i.e., SPI of previous month, assume year prior to simulation year is an average year, will fix this later)
-        # self.indicator = np.zeros(len(self.date))
-
-        # # build baseline demand vector (known a priori given demand input) and population and indicator vectors
-        # # assumptions: daily demand is uniform given monthly demand (daily demand = monthly demand / no. of days in month)
-        # self.demand_base = np.zeros(len(self.date))
-        # unique_months = self.date[['year', 'month']].drop_duplicates().sort_values(['year', 'month']).reset_index(drop=True)
-        # for i, x in enumerate(unique_months.values):
-        #     year = x[0]
-        #     month = x[1]
-        #     mask = (self.date.year.values == year) & (self.date.month.values == month)
-
-        #     # Build demand and population vector
-        #     base_val, pop = self.demand.loc[(self.demand['year'] == year) & (self.demand['month'] == month), ['demand_MG', 'population']].values[0]
-        #     self.demand_base[mask] = self.get_daily_demand(base_val, year, month)
-        #     self.population[mask] = pop
-
-        #     # Build daily indicator vector
-        #     self.indicator[mask] = exogenous_indicator[i]
         
         # create effective demand and active demand copies
         self.demand_eff_base = self.demand_base.copy()
@@ -179,6 +157,51 @@ class WaterBalanceModel:
         self.indicator = exogenous_indicator # should be monthly and the same length as the demand and population vector
 
         # define curtailment action tracking variables
+        self.eff_base_factor = 1.0                                              # Multiplier representing cumulative baseline reductions due to hardening 
+        self.event_max_curtail = 0.0                                            # Tracks deepest curtailment order during active drought
+        self.current_action = 0                                                 # Tracks current curtailment action index
+        self.current_curtailment = 0                                            # Tracks current curtailment rate value
+        self.months_in_active_drought = 0                                       # For implementing persistance filter, to be checked against min_hold
+        self.consecutive_recovery_months = 0                                    # For reducing action flickering, to be checked against min_recovery
+        self.min_hold_condition = False                                         # Tracks minimum hold requirement
+        self.min_recovery_condition = False                                     # Tracks minimum recovery period requirement
+
+    def initialize_state_values(self):
+        """
+        Initialize all state vectors to their original values at time t = 0.
+        """
+
+        # Initialize rolling cumulative water rights ledgers
+        self.WR_b12_accum = 0.0                       
+        self.WR_oakwell_accum = 0.0                   
+        self.WR_felton_accum = 0.0                    
+        self.WR_store_accum = 0.0                     
+        self.WR_release_accum = 0.0
+
+        # Initialize permanent state variables 
+        self.V_newell = self.LL_initial
+        self.V_felton = 0.0
+        self.V_precip = 0.0
+
+        # Initialize Hydrologic climate and condition status variables
+        self.is_critically_dry_year = False
+        self.hydro_cond_month = 'normal'
+
+        # Initialize Felton Pump status/conditions
+        self.is_felton_pump_on = True
+        self.first_flush = True
+        self.first_flush_counter = 0
+
+        # Initialize Turbidity Flag parameters
+        self.slr_turb = np.zeros(len(self.weather), dtype=np.uint8)             # Turbidity flag for Felton and Tait Diversion
+        self.nc_turb = np.zeros_like(self.slr_turb)                             # Turbidity flag for Liddel and Laguna Creek diversion
+        self.maj_turb = np.zeros_like(self.slr_turb)                            # Turbidity flag for Majors Creek diversion
+
+        # Initialize effective demand and active demand
+        self.demand_eff_base = self.demand_base.copy()
+        self.demand_active = self.demand_base.copy()
+
+        # Initialize define curtailment action tracking variables
         self.eff_base_factor = 1.0                                              # Multiplier representing cumulative baseline reductions due to hardening 
         self.event_max_curtail = 0.0                                            # Tracks deepest curtailment order during active drought
         self.current_action = 0                                                 # Tracks current curtailment action index
@@ -900,6 +923,9 @@ class WaterBalanceModel:
                environmental flows take priority, then SLV demand.
             
         """
+
+        # Initialize state variables
+        self.initialize_state_values()
         
         # Determine number of days/timesteps
         num_days = len(self.date)
