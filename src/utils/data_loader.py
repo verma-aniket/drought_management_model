@@ -31,7 +31,6 @@ class DataLoader:
         self.test_env_flows_file = config.TEST_ENV_FLOWS_FILE
         self.test_profiles_file = config.TEST_PROFILE_FILE
         self.test_spi_file = config.TEST_SPI_FILE
-        self.test_data_year_prior_file = config.TEST_DATA_YEAR_PRIOR_FILE
 
     def load_dates(self, filename: str) -> pd.DataFrame:
         """
@@ -51,7 +50,8 @@ class DataLoader:
             
         # Combine and set unified datetime index
         df['date'] = pd.to_datetime(df[required_date_cols])
-        df = df.set_index('date').sort_index()
+        # df = df.set_index('date').sort_index() # old
+        df = df.set_index('date') # don't sort (data should be sorted by date automatically)
 
         # add an index column (to be used for accessing values from turbidity vector)
         df['t'] = range(len(df)) 
@@ -92,7 +92,7 @@ class DataLoader:
 
         return df
 
-    def load_monthly_data(self, folder_path: Path, filename: str) -> pd.DataFrame:
+    def load_monthly_data(self, folder_path: Path, filename: str, cols: list = None) -> pd.DataFrame:
         """
         Loads a monthly demand projection, 
         combines year-month columns into a pandas DatetimeIndex and ensures chronological sorting.
@@ -102,7 +102,10 @@ class DataLoader:
             raise FileNotFoundError(f"Demand projections not found: {file_path}")
             
         # print(f"[-] Parsing monthly demand projections from: {file_path.name}")
-        df = pd.read_csv(file_path)
+        if cols is None:
+            df = pd.read_csv(file_path)
+        else:
+            df = pd.read_csv(file_path, usecols=cols)
 
         # lower all column name characters
         required_date_cols = ['year', 'month']
@@ -117,7 +120,7 @@ class DataLoader:
 
         # Combine and set unified datetime index
         df['date'] = pd.to_datetime(date_strings)
-        df = df.set_index('date').sort_index().reset_index(drop=True)
+        df = df.set_index('date').sort_index().reset_index(drop=False)
         
         return df
 
@@ -308,19 +311,18 @@ if __name__ == "__main__":
     
     # 2. Run sequential extraction loop for all input data files
     try:
-        dates_df = loader.load_dates("date_test.csv")
+        dates_df = loader.load_dates(loader.test_date_file)
         num_days = len(dates_df)
-        weather_df = loader.load_daily_timeseries(loader.weather_dir, "weather_test.csv", num_days, cols=['precip_mm', 'evap_mm'])
-        monthly_weather_df = loader.load_monthly_data(loader.weather_monthly_dir, "weather_test.csv")
-        data_year_prior_df = loader.load_monthly_data(loader.indicator_dir, "data_year_prior.csv")
-        flows_df   = loader.load_daily_timeseries(loader.flow_dir, "flow_test.csv", num_days)
-        demand_df  = loader.load_monthly_data(loader.demand_dir, "demand_test.csv")
-        params = loader.load_flat_parameters("parameters.csv")
-        bathymetry  = loader.load_stage_storage_area("stage_storage_area.csv")
-        profiles    = loader.load_monthly_profiles("monthly_profiles.csv")
-        hydro_types = loader.load_hydro_types("hydro_types.csv")
-        env_flows = loader.load_env_flows("reservoir_env_flows.csv")
-        spi_params = loader.load_indicator_params("spi_params.csv", cols=['a', 'scale', 'q'])
+        weather_df = loader.load_daily_timeseries(loader.weather_dir, loader.test_weather_file, num_days, cols=['precip_mm', 'evap_mm'])
+        monthly_weather_df = loader.load_monthly_data(loader.weather_monthly_dir, loader.test_weather_monthly_file)
+        flows_df   = loader.load_daily_timeseries(loader.flow_dir, loader.test_flow_file, num_days)
+        demand_df  = loader.load_monthly_data(loader.demand_dir, loader.test_demand_file)
+        params = loader.load_flat_parameters(loader.test_parameters_file)
+        bathymetry  = loader.load_stage_storage_area(loader.test_bathymetry_file)
+        profiles    = loader.load_monthly_profiles(loader.test_profiles_file)
+        hydro_types = loader.load_hydro_types(loader.test_hydro_types_file)
+        env_flows = loader.load_env_flows(loader.test_env_flows_file)
+        spi_params = loader.load_indicator_params(loader.test_spi_file, cols=['a', 'scale', 'q'])
 
         print("\n" + "="*50)
         print("ALL FILE ASSETS SUCCESSFULLY VERIFIED AND PARSED!")
@@ -328,7 +330,6 @@ if __name__ == "__main__":
         print(f" -> Date Timeline:         {dates_df.index.min().date()} to {dates_df.index.max().date()} ({len(dates_df)} days)")
         print(f" -> Weather Data:          {len(weather_df)} days of weather data loaded.")
         print(f" -> Monthly Weather Data:  {len(monthly_weather_df)} months of weather data loaded.")
-        print(f" -> Year Prior Data:       {len(data_year_prior_df)} months of previous year data loaded.")
         print(f" -> Flow Data Timeline:    {len(flows_df)} days of flow data loaded.")
         print(f" -> Demand Data Entries:   {len(demand_df)} monthly periods mapped.")
         print(f" -> System Parameters:     {len(params)} core configuration values loaded.")

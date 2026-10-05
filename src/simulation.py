@@ -2,42 +2,46 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-def curtailment_policy(indicator_thresholds, indicator_val):
+def curtailment_policy(indicator_thresholds, indicator_val, drought_indicator):
     """
-    Lookup Function: Maps a continuous indicator (e.g. SPI) to a discrete state level (0 to 5).
+    Lookup Function: Maps a continuous indicator (e.g. reservoir level) to a discrete state level (0 to 5).
     """
-    K1, K2, K3, K4, K5 = indicator_thresholds
-    if indicator_val >= K1:
-        return 0
-    elif indicator_val >= K2:
-        return 1
-    elif indicator_val >= K3:
-        return 2
-    elif indicator_val >= K4:
-        return 3
-    elif indicator_val >= K5:
-        return 4
+    if drought_indicator == 1:
+        K1, K2, K3, K4, K5 = indicator_thresholds
+        if indicator_val >= K1:
+            return 0
+        elif indicator_val >= K2:
+            return 1
+        elif indicator_val >= K3:
+            return 2
+        elif indicator_val >= K4:
+            return 3
+        elif indicator_val >= K5:
+            return 4
+        else:
+            return 5
     else:
-        return 5
+        return 0
 
 class WaterBalanceModel:
     def __init__(self, curt_rates, hardening_factor,
-                 def_w, curt_cost_w, penalty_w, 
+                 curt_weight, 
                  params_dict, profiles_dict, hydro_types_dict, bathymetry_df, env_flows_dict,
                  date_df, flow_df, weather_df, demand_df,
-                 exogenous_indicator):
+                 drought_status):
 
         # Store policy parameters
         self.curtailment_rates = curt_rates                                     # curtailment actions assuming simple tree structure
-        self.f_hardening = hardening_factor                                     # demand hardening factor
+        self.f_hardening = hardening_factor                                     # demand hardening vector (factor for each curtailment level) 
 
-        # Store objective function weights
-        # normalize weights if needed
-        total_w = def_w + curt_cost_w + penalty_w
-        self.def_w = def_w / total_w                                            # demand shortage deficit weight (0 - 1)
-        self.curt_cost_w = curt_cost_w / total_w                                # curtailment cost weight
-        self.penalty_w = penalty_w / total_w                                    # penalty of demand below HR2W
-        self.HR2W = 55                                                          # Human Right to Water (gal per capita per day)
+        # # Store objective function weights
+        # # normalize weights if needed
+        # total_w = def_w + curt_cost_w + penalty_w
+        # self.def_w = def_w / total_w                                            # demand shortage deficit weight (0 - 1)
+        # self.curt_cost_w = curt_cost_w / total_w                                # curtailment cost weight
+        # self.penalty_w = penalty_w / total_w                                    # penalty of demand below HR2W
+        # self.HR2W = 55                                                          # Human Right to Water (gal per capita per day)
+        self.curt_w = curt_weight                                                 # curtailment cost weight
 
         # Store all parameters and data matrices
         self.params = params_dict
@@ -91,7 +95,7 @@ class WaterBalanceModel:
         self.WR_release_limit = float(params_dict.get('WR_release', 1042.0))    # Newell Creek Diversion Water Right (resets Sep 1st), MG
 
         # Map curtailment policy persistence and recovery filters
-        self.min_hold = int(params_dict.get('min_hold_months', 3))              # minimum number of months curtailment policy2 action is in place
+        self.min_hold = int(params_dict.get('min_hold_months', 3))              # minimum number of months curtailment policy action is in place
         self.min_recovery = int(params_dict.get('min_recovery_months', 3))      # minimum number of months indicator should remain above "do nothing" threshold
 
         # Initialize rolling cumulative water rights ledgers (reset annually)
@@ -153,12 +157,12 @@ class WaterBalanceModel:
         self.demand_eff_base = self.demand_base.copy()
         self.demand_active = self.demand_base.copy()
 
-        # create indicator vector
-        self.indicator = exogenous_indicator # should be monthly and the same length as the demand and population vector
+        # create drought status indicator
+        self.drought_status = drought_status                                    # should be monthly and the same length as the demand and population vector
 
         # define curtailment action tracking variables
         self.eff_base_factor = 1.0                                              # Multiplier representing cumulative baseline reductions due to hardening 
-        self.event_max_curtail = 0.0                                            # Tracks deepest curtailment order during active drought
+        self.event_max_curtail_action = 0                                       # Tracks deepest curtailment order action during active drought
         self.current_action = 0                                                 # Tracks current curtailment action index
         self.current_curtailment = 0                                            # Tracks current curtailment rate value
         self.months_in_active_drought = 0                                       # For implementing persistance filter, to be checked against min_hold
@@ -203,7 +207,7 @@ class WaterBalanceModel:
 
         # Initialize define curtailment action tracking variables
         self.eff_base_factor = 1.0                                              # Multiplier representing cumulative baseline reductions due to hardening 
-        self.event_max_curtail = 0.0                                            # Tracks deepest curtailment order during active drought
+        self.event_max_curtail_action = 0                                       # Tracks deepest curtailment order action during active drought
         self.current_action = 0                                                 # Tracks current curtailment action index
         self.current_curtailment = 0                                            # Tracks current curtailment rate value
         self.months_in_active_drought = 0                                       # For implementing persistance filter, to be checked against min_hold
@@ -226,23 +230,23 @@ class WaterBalanceModel:
             Curtailment Order Function: Permanently ratchets down the baseline demand ceiling
             and resets event tracking variables upon drought exit.
             """
-            hardened_loss_fraction = self.event_max_curtail * self.f_hardening
+            hardened_loss_fraction = self.curtailment_rates[self.event_max_curtail_action] * self.f_hardening[self.event_max_curtail_action]
             self.eff_base_factor *= (1.0 - hardened_loss_fraction)
             
             # Reset event state counters
-            self.event_max_curtail = 0.0
+            self.event_max_curtail_action = 0
             self.current_action = 0
             self.current_curtailment = 0
             self.months_in_active_drought = 0
             self.consecutive_recovery_months = 0
 
-    def update_monthly_curtailment_policy(self, indicator_thresholds, indicator_val: float):
+    def update_monthly_curtailment_policy(self, indicator_thresholds, indicator_val: float, drought_indicator: int):
         """
         Orchestrator Function: Executes indicator lookup, strategy evaluation, 
         and state updates on the 1st day of every month.
         """
         # 1. Lookup raw policy action state from indicator
-        raw_action = curtailment_policy(indicator_thresholds, indicator_val)
+        raw_action = curtailment_policy(indicator_thresholds, indicator_val, drought_indicator)
         
         # 2. Advance monthly counters
         if indicator_val >= indicator_thresholds[0]:  # >= K1
@@ -268,13 +272,13 @@ class WaterBalanceModel:
             elif raw_action > self.current_action:
                 # ESCALATION: Drought worsens -> Escalate immediately
                 self.current_action = raw_action
+                # reset current action counter
+                self.months_in_active_drought = 1
                 
             elif 0 < raw_action < self.current_action:
                 # DE-ESCALATION (e.g., Level 3 to Level 1): Requires Strategy 1 hold time
-                # if self.months_in_active_drought >= self.min_hold:
-                #     self.current_action = raw_action
-                self.current_action = raw_action
-
+                if self.months_in_active_drought >= self.min_hold:
+                    self.current_action = raw_action
         else:
             # --- NORMAL OPERATIONS (State 0) ---
             if raw_action > 0:
@@ -286,7 +290,7 @@ class WaterBalanceModel:
         # 4. Update active curtailment rate
         self.current_curtailment = self.curtailment_rates[self.current_action]
         if self.current_action > 0:
-            self.event_max_curtail = max(self.event_max_curtail, self.current_curtailment)
+            self.event_max_curtail_action = max(self.event_max_curtail_action, self.current_action)
 
     def get_days_in_month(self, year: int, month: int) -> int:
         """
@@ -671,7 +675,7 @@ class WaterBalanceModel:
                 # 3. Sum up total downstream municipal supply and calculate current urban demand gap
                 s_tait_total = min(s_NC + s_tait, self.c_tait_total) # enforce flow capacity  
                 
-                # what I think it should be 
+                # what I think it should be (orignal model does not include ground water sources)
                 s_down_felton = s_tait_total + s_b12 + s_oakwell
                 gap = max(0.0, city_demand - s_down_felton)
 
@@ -958,6 +962,7 @@ class WaterBalanceModel:
                 "env_spill": np.zeros(num_days),
                 "other_spill": np.zeros(num_days),
                 "urban_demand_gap": np.zeros(num_days),
+                "base_demand_MGD": np.zeros(num_days),
                 "active_urban_demand": np.zeros(num_days),
                 "unmet_urban_demand": np.zeros(num_days),
                 "unmet_farmer_demand": np.zeros(num_days),
@@ -975,7 +980,7 @@ class WaterBalanceModel:
                 "LL_release_MGD": np.zeros(num_days),
                 "curtailment": np.zeros(num_days),
                 "eff_base_factor": np.zeros(num_days),
-                "event_max_curtail": np.zeros(num_days),
+                "event_max_curtail_action": np.zeros(num_days),
                 "months_in_active_drought": np.zeros(num_days),
                 "consecutive_recovery_months": np.zeros(num_days),
                 "base_demand_MGD": np.zeros(num_days),
@@ -1060,7 +1065,12 @@ class WaterBalanceModel:
             # A. Apply curtailment policy at the monthly timestep
             if day == 1:
                 current_month_idx = self.month_to_idx[(year, month)]
-                self.update_monthly_curtailment_policy(indicator_thresholds, self.indicator[current_month_idx])
+                # update switch SPI indicator for reservoir storage 
+                # old: 
+                # self.update_monthly_curtailment_policy(indicator_thresholds, self.indicator[current_month_idx])
+                # new:
+                self.update_monthly_curtailment_policy(indicator_thresholds=indicator_thresholds, indicator_val=self.V_newell + self.V_felton + self.V_precip,
+                                                       drought_indicator=self.drought_status[current_month_idx])
                 self.demand_eff_base[current_month_idx] = self.eff_base_factor * self.demand_base[current_month_idx]
                 self.demand_active[current_month_idx] = (1 - self.current_curtailment) * self.demand_eff_base[current_month_idx]
             
@@ -1119,6 +1129,7 @@ class WaterBalanceModel:
                 outputs["env_spill"][t] = o_env
                 outputs["other_spill"][t] = ll_spill
                 outputs["urban_demand_gap"][t] = urban_demand_gap
+                outputs["base_demand_MGD"][t] = self.get_daily_demand(self.demand_base[current_month_idx], year, month)
                 outputs["active_urban_demand"][t] = d_urban_daily
                 outputs["unmet_urban_demand"][t] = unmet_urban_demand
                 outputs["unmet_farmer_demand"][t] = unmet_farm
@@ -1134,7 +1145,7 @@ class WaterBalanceModel:
                 outputs["LL_release_MGD"][t] = total_reservoir_release
                 outputs["curtailment"][t] = self.current_curtailment
                 outputs["eff_base_factor"][t] = self.eff_base_factor
-                outputs["event_max_curtail"][t] = self.event_max_curtail
+                outputs["event_max_curtail_action"][t] = self.event_max_curtail_action
                 outputs["months_in_active_drought"][t] = self.months_in_active_drought
                 outputs["consecutive_recovery_months"][t] = self.consecutive_recovery_months
                 outputs["base_demand_MGD"][t] = self.get_daily_demand(self.demand_base[current_month_idx], year, month)
@@ -1164,9 +1175,11 @@ class WaterBalanceModel:
             return simulation_results_df
         else:
             # compute performance metric
-            total_deficit = np.sum(urban_deficit)
+            # total_deficit = np.sum(urban_deficit)
+            total_square_deficit = np.sum(np.power(urban_deficit,2))
             total_curt = np.sum(self.demand_base - self.demand_active)
-            penalty_per_capita = np.clip((self.HR2W * (365/12)) - ((self.demand_active * 1000000)  / self.population), a_min = 0, a_max=None)
-            penalty = np.sum((penalty_per_capita * self.population) / 1000000)
+            # penalty_per_capita = np.clip((self.HR2W * (365/12)) - ((self.demand_active * 1000000)  / self.population), a_min = 0, a_max=None)
+            # penalty = np.sum((penalty_per_capita * self.population) / 1000000)
             # return [total_deficit, total_curt, penalty]
-            return self.def_w * total_deficit + self.curt_cost_w * total_curt + self.penalty_w * penalty
+            # return self.def_w * total_deficit + self.curt_cost_w * total_curt + self.penalty_w * penalty
+            return total_square_deficit + self.curt_w * total_curt

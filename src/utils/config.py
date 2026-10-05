@@ -15,7 +15,6 @@ SRC_DIR = REPO_ROOT / "src"
 DATA_DIR = REPO_ROOT / "data"
 SYSTEM_DIR = DATA_DIR / "system"
 WEATHER_DIR = DATA_DIR / "weather"
-RAW_WEATHER_DIR = DATA_DIR / "raw_weather"
 WEATHER_MONTHLY_DIR = DATA_DIR / "weather_monthly"
 INDICATOR_DIR = DATA_DIR / "indicators"
 FLOW_DIR = DATA_DIR / "flows"
@@ -25,7 +24,7 @@ RESULTS_DIR = REPO_ROOT / "results"
 # Define test filenames
 TEST_DATE_FILE = "date_test.csv"
 TEST_WEATHER_FILE = "weather_test.csv"
-TEST_WEATHER_MONTHLY_FILE = "weather_test.csv"
+TEST_WEATHER_MONTHLY_FILE = "weather_monthly_test.csv"
 TEST_INDICATOR_FILE = "indicator_test.csv"
 TEST_FLOW_FILE = "flow_test.csv"
 TEST_DEMAND_FILE = "demand_test.csv"
@@ -35,14 +34,13 @@ TEST_BATHYM_FILE = "stage_storage_area.csv"
 TEST_HYDRO_TYPE_FILE = "hydro_types.csv"
 TEST_ENV_FLOWS_FILE = "reservoir_env_flows.csv"
 TEST_SPI_FILE = "spi_params.csv"
-TEST_DATA_YEAR_PRIOR_FILE = "data_year_prior.csv"
 
 def initialize_directories():
     """
     Safely build the required workspace directories on the local machine 
     if they do not already exist when a simulation is executed.
     """
-    directories = [DATA_DIR, SYSTEM_DIR, WEATHER_DIR, RAW_WEATHER_DIR, WEATHER_MONTHLY_DIR, INDICATOR_DIR, FLOW_DIR, DEMAND_DIR, RESULTS_DIR]
+    directories = [DATA_DIR, SYSTEM_DIR, WEATHER_DIR, WEATHER_MONTHLY_DIR, INDICATOR_DIR, FLOW_DIR, DEMAND_DIR, RESULTS_DIR]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
 

@@ -6,6 +6,9 @@ __pycache__/
 data/
 results/
 plots/
+obsolete/
+src/plotting
+src/misc
 
 # Ignore common spreadsheet and data types
 *.csv
